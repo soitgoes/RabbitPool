@@ -51,7 +51,5 @@ namespace RabbitPool.Tests
             model.Dispose();
             Assert.Equal(1, pool.ChannelCount);
         }
-
-       
     }
 }

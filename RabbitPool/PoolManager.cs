@@ -12,15 +12,14 @@ namespace RabbitPool
     /// </summary>
     public class PoolManager
     {
-        private int channelCount = 0;
-        private List<IConnection> connections = new List<IConnection>();
-        private readonly int maxConnections;
-        private readonly int maxChannelsPerConnection;
+        private int _channelCount;
+        private readonly List<IConnection> _connections = new List<IConnection>();
+        private readonly int _maxConnections;
+        private readonly int _maxChannelsPerConnection;
         private readonly ConnectionFactory factory;
         
-        
-        public IEnumerable<IConnection> Connections => connections;
-        public int ChannelCount => channelCount;
+        public IEnumerable<IConnection> Connections => _connections;
+        public int ChannelCount => _channelCount;
 
         /// <summary>
         /// 
@@ -30,8 +29,8 @@ namespace RabbitPool
         /// <param name="maxChannelsPerConnection">The maximum number of channels/models per connection</param>
         public PoolManager(RabbitConnectionOptions connection, int maxConnections=25, int maxChannelsPerConnection=500)
         {
-            this.maxConnections = maxConnections;
-            this.maxChannelsPerConnection = maxChannelsPerConnection;
+            _maxConnections = maxConnections;
+            _maxChannelsPerConnection = maxChannelsPerConnection;
             factory = new ConnectionFactory
             {
                 HostName = connection.HostName,
@@ -44,11 +43,11 @@ namespace RabbitPool
             };
         }
 
-        public int ConnectionCount { get { return connections?.Count ?? 0; } }
-       
+        public int ConnectionCount => _connections?.Count ?? 0;
+
         private IConnection StartConnection()
         {
-            channelCount = 0;
+            _channelCount = 0;
             return factory.CreateConnection();
         }
 
@@ -59,38 +58,37 @@ namespace RabbitPool
         public IModel GetChannel()
         {
             //if there is no connection create one.
-            if (connections.Count == 0) connections.Insert(0, StartConnection());
-            if (connections.First().IsOpen)
+            if (_connections.Count == 0) _connections.Insert(0, StartConnection());
+            if (_connections.First().IsOpen)
             {
-
-                if (channelCount >= maxChannelsPerConnection)
+                if (_channelCount >= _maxChannelsPerConnection)
                 {
-                    if (connections.Count >= maxConnections)
+                    if (_connections.Count >= _maxConnections)
                     {
                         //Prune closed connections and reset pointer
                         PruneClosedConnections();
                         //If still greater than maxConnections then close one
-                        if (connections.Count >= maxConnections)
+                        if (_connections.Count >= _maxConnections)
                         {
-                            var lastConnection = connections.Last();
+                            var lastConnection = _connections.Last();
                             lastConnection.Close();
                            
-                            connections.Remove(lastConnection);
+                            _connections.Remove(lastConnection);
                         }
                     }
-                    connections.Insert(0, StartConnection());
+                    _connections.Insert(0, StartConnection());
                 }
-                var model = connections.First().CreateModel();
+                var model = _connections.First().CreateModel();
                 model.ModelShutdown += (obj, args) =>
                 {
-                    channelCount--;
+                    _channelCount--;
                 };
-                channelCount++;
+                _channelCount++;
                 return model;
             }
             else
             {
-                connections.Remove(connections.First());
+                _connections.Remove(_connections.First());
                 return GetChannel();
             }
 
@@ -99,7 +97,7 @@ namespace RabbitPool
         private void PruneClosedConnections()
         {
             var toBeRemoved = new List<IConnection>();
-            foreach (var connection in connections)
+            foreach (var connection in _connections)
             {
                 if (!connection.IsOpen)
                 {
@@ -107,12 +105,8 @@ namespace RabbitPool
                     toBeRemoved.Add(connection);
                 }
             }
-
             foreach (var item in toBeRemoved)
-            {
-                connections.Remove(item);
-            }
-            
+                _connections.Remove(item);
         }
     }
 }
