@@ -38,7 +38,7 @@ namespace RabbitPool
                 UserName = connection.UserName,
                 Password = connection.Password,
                 Port = connection.Port,
-                Ssl = connection.SslOption,
+                Ssl = connection.SslOption ?? new SslOption{Enabled = false},
                 ContinuationTimeout = connection.ContinuationTimeout,
                 AutomaticRecoveryEnabled = false
             };
@@ -74,12 +74,17 @@ namespace RabbitPool
                         {
                             var lastConnection = connections.Last();
                             lastConnection.Close();
+                           
                             connections.Remove(lastConnection);
                         }
                     }
                     connections.Insert(0, StartConnection());
                 }
                 var model = connections.First().CreateModel();
+                model.ModelShutdown += (obj, args) =>
+                {
+                    channelCount--;
+                };
                 channelCount++;
                 return model;
             }
