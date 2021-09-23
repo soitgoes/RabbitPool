@@ -38,6 +38,7 @@ namespace RabbitPool
                 UserName = connection.UserName,
                 Password = connection.Password,
                 Port = connection.Port,
+                Ssl = connection.SslOption,
                 ContinuationTimeout = connection.ContinuationTimeout,
                 AutomaticRecoveryEnabled = false
             };
