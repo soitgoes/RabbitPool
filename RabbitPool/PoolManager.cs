@@ -54,7 +54,6 @@ namespace RabbitPool
             _maxChannelsPerConnection = maxChannelsPerConnection;
         }
 
-
         public int ConnectionCount => _connections?.Count ?? 0;
 
         private IConnection StartConnection()
