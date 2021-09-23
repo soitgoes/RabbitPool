@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using RabbitMQ.Client;
 using Xunit;
 
 namespace RabbitPool.Tests
@@ -10,10 +12,10 @@ namespace RabbitPool.Tests
         public void ShouldEnforceConnectionLimitByReplacingOldConnections()
         {
             var pool = new PoolManager(new RabbitConnectionOptions(), 10, 1);
+            var channels = new List<IModel>();
             for (var i = 0; i < 12; i++)
             {
-                var model = pool.GetChannel();
-              
+               channels.Add(pool.GetChannel());
             }
             Assert.Equal(10, pool.Connections.Count());
         }

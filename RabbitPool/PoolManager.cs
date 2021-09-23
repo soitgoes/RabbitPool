@@ -13,10 +13,10 @@ namespace RabbitPool
     public class PoolManager
     {
         private int _channelCount;
-        private readonly List<IConnection> _connections = new List<IConnection>();
+        private readonly List<IConnection> _connections = new();
         private readonly int _maxConnections;
         private readonly int _maxChannelsPerConnection;
-        private readonly ConnectionFactory factory;
+        private readonly ConnectionFactory _factory;
         
         public IEnumerable<IConnection> Connections => _connections;
         public int ChannelCount => _channelCount;
@@ -27,28 +27,45 @@ namespace RabbitPool
         /// <param name="connection">Connection details for RabbitMQ</param>
         /// <param name="maxConnections">The maximum number of connections allowed by the pool</param>
         /// <param name="maxChannelsPerConnection">The maximum number of channels/models per connection</param>
-        public PoolManager(RabbitConnectionOptions connection, int maxConnections=25, int maxChannelsPerConnection=500)
+        public PoolManager(RabbitConnectionOptions connection, int maxConnections=25, int maxChannelsPerConnection=500):this( new ConnectionFactory
         {
+            HostName = connection.HostName,
+            UserName = connection.UserName,
+            Password = connection.Password,
+            Port = connection.Port,
+            Ssl = connection.SslOption ?? new SslOption{Enabled = false},
+            ContinuationTimeout = connection.ContinuationTimeout,
+            AutomaticRecoveryEnabled = false
+        }, maxConnections, maxChannelsPerConnection)
+        {
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="factory">ConnectionFactory in case additional options are needed</param>
+        /// <param name="maxConnections">The maximum number of connections allowed by the pool</param>
+        /// <param name="maxChannelsPerConnection">The maximum number of channels/models per connection</param>
+        // ReSharper disable once MemberCanBePrivate.Global
+        public PoolManager(ConnectionFactory factory, int maxConnections = 25, int maxChannelsPerConnection = 500)
+        {
+            _factory = factory;
             _maxConnections = maxConnections;
             _maxChannelsPerConnection = maxChannelsPerConnection;
-            factory = new ConnectionFactory
-            {
-                HostName = connection.HostName,
-                UserName = connection.UserName,
-                Password = connection.Password,
-                Port = connection.Port,
-                Ssl = connection.SslOption ?? new SslOption{Enabled = false},
-                ContinuationTimeout = connection.ContinuationTimeout,
-                AutomaticRecoveryEnabled = false
-            };
         }
+
 
         public int ConnectionCount => _connections?.Count ?? 0;
 
         private IConnection StartConnection()
         {
             _channelCount = 0;
-            return factory.CreateConnection();
+            var conn = _factory.CreateConnection();
+            conn.ConnectionShutdown += (s, e) =>
+            {
+                _connections.Remove(conn);
+            };
+            return conn;
         }
 
         /// <summary>
@@ -65,33 +82,23 @@ namespace RabbitPool
                 {
                     if (_connections.Count >= _maxConnections)
                     {
-                        //Prune closed connections and reset pointer
-                        PruneClosedConnections();
                         //If still greater than maxConnections then close one
                         if (_connections.Count >= _maxConnections)
                         {
                             var lastConnection = _connections.Last();
                             lastConnection.Close();
-                           
                             _connections.Remove(lastConnection);
                         }
                     }
                     _connections.Insert(0, StartConnection());
                 }
                 var model = _connections.First().CreateModel();
-                model.ModelShutdown += (obj, args) =>
-                {
-                    _channelCount--;
-                };
+                model.ModelShutdown += (sender, args) => _channelCount--;
                 _channelCount++;
                 return model;
             }
-            else
-            {
-                _connections.Remove(_connections.First());
-                return GetChannel();
-            }
-
+            _connections.Remove(_connections.First());
+            return GetChannel();
         }
 
         private void PruneClosedConnections()
