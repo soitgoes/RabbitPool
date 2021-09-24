@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using RabbitMQ.Client;
 
@@ -6,28 +7,32 @@ namespace RabbitPool
 {
     /// <summary>
     /// Connection Pool management for RabbitMQ.
-    /// Ensures that the numberof connections and the number of connections per queue is not exceeded.
+    /// Ensures that the number of connections and the number of connections per queue is not exceeded.
     /// If connections are exceeded then connections are pruned of non-open connections and if needed
     /// the oldest connection is disposed of to make room for the new.
     /// </summary>
     public class PoolManager
     {
-        private int _channelCount;
-        private readonly List<IConnection> _connections = new();
-        private readonly int _maxConnections;
-        private readonly int _maxChannelsPerConnection;
+        private readonly SafeList<IConnection> _connections = new();
+        private readonly uint _maxChannelsPerConnection;
         private readonly ConnectionFactory _factory;
-        
-        public IEnumerable<IConnection> Connections => _connections;
-        public int ChannelCount => _channelCount;
+        private uint _channelCount =0u;
+        private uint _totalChannelCount = 0u;
+        private uint _connectionCount=0u;
+        private readonly uint _maxConnections=0u;
 
+        public uint ChannelCount => _totalChannelCount;
+        public uint ConnectionCount => _connectionCount;
+
+        public IEnumerable<IConnection> Connections => _connections;
+        
         /// <summary>
         /// 
         /// </summary>
         /// <param name="connection">Connection details for RabbitMQ</param>
-        /// <param name="maxConnections">The maximum number of connections allowed by the pool</param>
         /// <param name="maxChannelsPerConnection">The maximum number of channels/models per connection</param>
-        public PoolManager(RabbitConnectionOptions connection, int maxConnections=25, int maxChannelsPerConnection=500):this( new ConnectionFactory
+        /// <param name="maxConnections">The maximum number of connections before cycling</param>
+        public PoolManager(RabbitConnectionOptions connection,  uint maxChannelsPerConnection=500,uint maxConnections=25):this( new ConnectionFactory
         {
             HostName = connection.HostName,
             UserName = connection.UserName,
@@ -36,7 +41,7 @@ namespace RabbitPool
             Ssl = connection.SslOption ?? new SslOption{Enabled = false},
             ContinuationTimeout = connection.ContinuationTimeout,
             AutomaticRecoveryEnabled = false
-        }, maxConnections, maxChannelsPerConnection)
+        }, maxChannelsPerConnection,maxConnections)
         {
         }
 
@@ -44,26 +49,26 @@ namespace RabbitPool
         /// 
         /// </summary>
         /// <param name="factory">ConnectionFactory in case additional options are needed</param>
-        /// <param name="maxConnections">The maximum number of connections allowed by the pool</param>
         /// <param name="maxChannelsPerConnection">The maximum number of channels/models per connection</param>
+        /// <param name="maxConnections">The maximum number of connections before cycling</param>
         // ReSharper disable once MemberCanBePrivate.Global
-        public PoolManager(ConnectionFactory factory, int maxConnections = 25, int maxChannelsPerConnection = 500)
+        public PoolManager(ConnectionFactory factory, uint maxChannelsPerConnection = 500, uint maxConnections = 25)
         {
             _factory = factory;
             _maxConnections = maxConnections;
             _maxChannelsPerConnection = maxChannelsPerConnection;
         }
 
-        public int ConnectionCount => _connections?.Count ?? 0;
-
         private IConnection StartConnection()
         {
-            _channelCount = 0;
             var conn = _factory.CreateConnection();
             conn.ConnectionShutdown += (s, e) =>
             {
-                _connections.Remove(conn);
+                _connectionCount--;
             };
+            _connections.Enqueue(conn);
+            _connectionCount++;
+            _channelCount = 0;
             return conn;
         }
 
@@ -73,46 +78,37 @@ namespace RabbitPool
         /// <returns></returns>
         public IModel GetChannel()
         {
-            //if there is no connection create one.
-            if (_connections.Count == 0) _connections.Insert(0, StartConnection());
-            if (_connections.First().IsOpen)
+            if (_connectionCount >= _maxConnections)
             {
-                if (_channelCount >= _maxChannelsPerConnection)
+                //if we get here let's just close all the connections that aren't running.
+                //If we do get here we have something wrong with our app that needs addressing but we should pick that up during monitoring
+                //and in the meantime I don't want to fail fatally
+                foreach (var connToClose in _connections)
                 {
-                    if (_connections.Count >= _maxConnections)
+                    try
                     {
-                        //If still greater than maxConnections then close one
-                        if (_connections.Count >= _maxConnections)
-                        {
-                            var lastConnection = _connections.Last();
-                            lastConnection.Close();
-                            _connections.Remove(lastConnection);
-                        }
+                        connToClose.Close();
+                        _connections.Empty();
                     }
-                    _connections.Insert(0, StartConnection());
+                    catch (Exception)
+                    {
+                        //eat it we were throwing it out anyways
+                    }
                 }
-                var model = _connections.First().CreateModel();
-                model.ModelShutdown += (sender, args) => _channelCount--;
-                _channelCount++;
-                return model;
+                _channelCount = 0;
+                _connectionCount = 0;
+                _totalChannelCount = 0;
             }
-            _connections.Remove(_connections.First());
-            return GetChannel();
-        }
-
-        private void PruneClosedConnections()
-        {
-            var toBeRemoved = new List<IConnection>();
-            foreach (var connection in _connections)
+            var conn = _connections.IsEmpty() || _channelCount >= _maxChannelsPerConnection ? StartConnection() : _connections.Head();
+            var model = conn.CreateModel();
+            model.ModelShutdown += (s, e) =>
             {
-                if (!connection.IsOpen)
-                {
-                    connection.Dispose();
-                    toBeRemoved.Add(connection);
-                }
-            }
-            foreach (var item in toBeRemoved)
-                _connections.Remove(item);
+                //Can i find and eliminate the connection if it doesn't have any channels, Nope
+                _totalChannelCount--;
+            };
+            _channelCount++;
+            _totalChannelCount++;
+            return model;
         }
     }
 }

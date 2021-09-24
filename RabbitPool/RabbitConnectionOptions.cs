@@ -10,6 +10,7 @@ namespace RabbitPool
         public string Password = "guest";
         public int Port = 5672;
         public TimeSpan ContinuationTimeout = TimeSpan.FromSeconds(10);
+        // ReSharper disable once FieldCanBeMadeReadOnly.Global
         public SslOption SslOption = new(){Enabled = false};
     }
 }
