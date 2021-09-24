@@ -88,13 +88,13 @@ namespace RabbitPool
                     try
                     {
                         connToClose.Close();
-                        _connections.Empty();
                     }
                     catch (Exception)
                     {
                         //eat it we were throwing it out anyways
                     }
                 }
+                 _connections.Empty();
                 _channelCount = 0;
                 _connectionCount = 0;
                 _totalChannelCount = 0;
