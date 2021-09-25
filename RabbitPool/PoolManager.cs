@@ -11,7 +11,7 @@ namespace RabbitPool
     /// If connections are exceeded then connections are pruned of non-open connections and if needed
     /// the oldest connection is disposed of to make room for the new.
     /// </summary>
-    public class PoolManager
+    public class PoolManager : IDisposable
     {
         private readonly SafeList<IConnection> _connections = new();
         private readonly uint _maxChannelsPerConnection;
@@ -59,7 +59,7 @@ namespace RabbitPool
             _maxChannelsPerConnection = maxChannelsPerConnection;
         }
 
-        private IConnection StartConnection()
+        private  IConnection StartConnection()
         {
             var conn = _factory.CreateConnection();
             conn.ConnectionShutdown += (s, e) =>
@@ -94,12 +94,12 @@ namespace RabbitPool
                         //eat it we were throwing it out anyways
                     }
                 }
-                 _connections.Empty();
+                _connections.Empty();
                 _channelCount = 0;
                 _connectionCount = 0;
                 _totalChannelCount = 0;
             }
-            var conn = _connections.IsEmpty() || _channelCount >= _maxChannelsPerConnection ? StartConnection() : _connections.Head();
+            var conn = _connections.IsEmpty() || _channelCount >= _maxChannelsPerConnection ? StartConnection() : _connections.Tail();
             var model = conn.CreateModel();
             model.ModelShutdown += (s, e) =>
             {
@@ -109,6 +109,13 @@ namespace RabbitPool
             _channelCount++;
             _totalChannelCount++;
             return model;
+        }
+
+        public void Dispose()
+        {
+            foreach (var conn in _connections)
+                conn.Dispose();
+            _connections.Empty();
         }
     }
 }

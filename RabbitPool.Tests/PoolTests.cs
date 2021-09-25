@@ -57,5 +57,13 @@ namespace RabbitPool.Tests
             9.Times(() => pool.GetChannel()); 
             Assert.Equal(1u, pool.ConnectionCount);
         }
+
+        [Fact]
+        public void ShouldWorkOnLargeNumber()
+        {
+            var pool = new PoolManager(new RabbitConnectionOptions(), 5, 100);
+            200.Times(() => pool.GetChannel());
+            Assert.True(3u >=  pool.ConnectionCount);
+        }
     }
 }
