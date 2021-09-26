@@ -63,7 +63,7 @@ namespace RabbitPool.Tests
         {
             var pool = new PoolManager(new RabbitConnectionOptions(), 5, 100);
             200.Times(() => pool.GetChannel());
-            Assert.Equal(40,  pool.ConnectionCount);
+            Assert.Equal(40u,  pool.ConnectionCount);
         }
     }
 }
