@@ -20,7 +20,10 @@ namespace RabbitPool
         /// <param name="item"></param>
         public void Enqueue(T item)
         {
-            List.Add(item);
+            lock (hold)
+            {
+                List.Add(item);
+            }
         }
 
         public bool IsEmpty()
@@ -33,7 +36,10 @@ namespace RabbitPool
 
         public T Head()
         {
-            return List.FirstOrDefault();
+            lock (hold)
+            {
+                return List.FirstOrDefault();
+            }
         }
         /// <summary>
         /// Pops off the head of the list

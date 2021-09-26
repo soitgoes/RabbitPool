@@ -100,6 +100,7 @@ namespace RabbitPool
                 _totalChannelCount = 0;
             }
             var conn = _connections.IsEmpty() || _channelCount >= _maxChannelsPerConnection ? StartConnection() : _connections.Tail();
+            if (!conn.IsOpen) conn = StartConnection();
             var model = conn.CreateModel();
             model.ModelShutdown += (s, e) =>
             {
@@ -114,7 +115,7 @@ namespace RabbitPool
         public void Dispose()
         {
             foreach (var conn in _connections)
-                conn.Dispose();
+                conn.Close();
             _connections.Empty();
         }
     }
